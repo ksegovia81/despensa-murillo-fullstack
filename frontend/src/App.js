@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShoppingCart, User, Home, Utensils, Package, Clock, Truck, CreditCard, Percent, Settings, Plus, Edit, Trash2, Eye, DollarSign } from 'lucide-react';
 
@@ -5,35 +6,321 @@ import { ShoppingCart, User, Home, Utensils, Package, Clock, Truck, CreditCard, 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const apiRequest = async (url, options = {}) => {
-  const token = localStorage.getItem('token');
-  
-  const config = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
-    },
-    ...options,
-  };
-
-  if (options.body) {
-    config.body = JSON.stringify(options.body);
-  }
-
   try {
-    const response = await fetch(`${API_URL}${url}`, config);
+    const API_BASE = 'http://localhost:5000/api';
+    const token = localStorage.getItem('token');
     
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      ...options,
+    };
+
+    if (options.body) {
+      config.body = JSON.stringify(options.body);
+    }
+
+    // ✅ Asegúrate de usar await aquí
+    const response = await fetch(`${API_BASE}${url}`, config);
+    
+    // ✅ Verifica si la respuesta es OK
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Error en la solicitud');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
     
-    return response.json();
+    // ✅ Devuelve los datos parseados
+    return await response.json();
+    
   } catch (error) {
-    console.error('API Request Error:', error);
+    console.error('💥 Fetch error:', error);
     throw error;
   }
 };
+
+// Componente AdminDiscountsView - NUEVO COMPONENTE
+const AdminDiscountsView = ({ setAdminView, discounts, loadDiscounts, deleteDiscount }) => {
+  const [newDiscount, setNewDiscount] = useState({
+    day: 'Lunes',
+    discount: 10,
+    category: 'almacen',
+    text: ''
+  });
+  const [editingDiscount, setEditingDiscount] = useState(null);
+
+  useEffect(() => {
+    loadDiscounts();
+  }, [loadDiscounts]);
+
+  const handleAddDiscount = async () => {
+  if (!newDiscount.text) {
+    alert('Por favor ingresa el texto del descuento');
+    return;
+  }
+
+  try {
+    console.log('🔄 Intentando agregar descuento:', newDiscount);
+    
+    const result = await apiRequest('/admin/discounts', {
+      method: 'POST',
+      body: newDiscount
+    });
+    
+    console.log('✅ Descuento agregado:', result);
+    
+    setNewDiscount({
+      day: 'Lunes',
+      discount: 10,
+      category: 'almacen',
+      text: ''
+    });
+    
+    alert('Descuento agregado exitosamente');
+    loadDiscounts();
+  } catch (error) {
+    console.error('❌ Error detallado al agregar descuento:', error);
+    alert('Error al agregar descuento: ' + error.message);
+  }
+};
+
+  const handleUpdateDiscount = async (id) => {
+    try {
+      await apiRequest(`/admin/discounts/${id}`, {
+        method: 'PUT',
+        body: editingDiscount
+      });
+      
+      setEditingDiscount(null);
+      alert('Descuento actualizado exitosamente');
+      loadDiscounts();
+    } catch (error) {
+      alert('Error al actualizar descuento: ' + error.message);
+    }
+  };
+
+  return (
+    <div className="p-4 pb-20">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Gestionar Descuentos Diarios</h2>
+        <button
+          onClick={() => setAdminView('overview')}
+          className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-200 transition-colors flex items-center"
+        >
+          ← Volver
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm p-6 mb-8 border border-gray-100">
+        <h3 className="font-bold text-lg mb-4 flex items-center text-gray-800">
+          <Plus className="h-5 w-5 mr-2 text-blue-500" />
+          Agregar Nuevo Descuento
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Día de la semana</label>
+            <select
+              value={newDiscount.day}
+              onChange={(e) => setNewDiscount({ ...newDiscount, day: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+            >
+              <option value="Lunes">Lunes</option>
+              <option value="Martes">Martes</option>
+              <option value="Miércoles">Miércoles</option>
+              <option value="Jueves">Jueves</option>
+              <option value="Viernes">Viernes</option>
+              <option value="Sábado">Sábado</option>
+              <option value="Domingo">Domingo</option>
+            </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Porcentaje de descuento</label>
+            <input
+              type="number"
+              min="1"
+              max="100"
+              value={newDiscount.discount}
+              onChange={(e) => setNewDiscount({ ...newDiscount, discount: parseInt(e.target.value) })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+            <select
+              value={newDiscount.category}
+              onChange={(e) => setNewDiscount({ ...newDiscount, category: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+            >
+              <option value="almacen">Almacén</option>
+              <option value="comida">Comida</option>
+              <option value="all">Todos los productos</option>
+              <option value="delivery">Delivery</option>
+            </select>
+          </div>
+          
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Texto descriptivo</label>
+            <input
+              type="text"
+              placeholder="Ej: 10% OFF en productos de almacén"
+              value={newDiscount.text}
+              onChange={(e) => setNewDiscount({ ...newDiscount, text: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+            />
+          </div>
+        </div>
+        
+        <div className="flex justify-end space-x-3 mt-6">
+          <button
+            onClick={() => setNewDiscount({
+              day: 'Lunes',
+              discount: 10,
+              category: 'almacen',
+              text: ''
+            })}
+            className="px-5 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-lg"
+          >
+            Limpiar
+          </button>
+          <button
+            onClick={handleAddDiscount}
+            className="px-5 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-lg font-medium"
+          >
+            Agregar Descuento
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        <h3 className="font-bold text-xl text-gray-800">Descuentos Existentes ({discounts.length})</h3>
+        
+        {discounts.length === 0 ? (
+          <div className="text-center py-12 bg-white rounded-xl shadow-sm p-6">
+            <Percent className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <p className="text-xl text-gray-600">No hay descuentos configurados</p>
+          </div>
+        ) : (
+          discounts.map(discount => (
+            <div key={discount._id} className="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+              {editingDiscount && editingDiscount._id === discount._id ? (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Día</label>
+                      <select
+                        value={editingDiscount.day}
+                        onChange={(e) => setEditingDiscount({ ...editingDiscount, day: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                      >
+                        <option value="Lunes">Lunes</option>
+                        <option value="Martes">Martes</option>
+                        <option value="Miércoles">Miércoles</option>
+                        <option value="Jueves">Jueves</option>
+                        <option value="Viernes">Viernes</option>
+                        <option value="Sábado">Sábado</option>
+                        <option value="Domingo">Domingo</option>
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Descuento (%)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={editingDiscount.discount}
+                        onChange={(e) => setEditingDiscount({ ...editingDiscount, discount: parseInt(e.target.value) })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                      <select
+                        value={editingDiscount.category}
+                        onChange={(e) => setEditingDiscount({ ...editingDiscount, category: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                      >
+                        <option value="almacen">Almacén</option>
+                        <option value="comida">Comida</option>
+                        <option value="all">Todos</option>
+                        <option value="delivery">Delivery</option>
+                      </select>
+                    </div>
+                    
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Texto</label>
+                      <input
+                        type="text"
+                        value={editingDiscount.text}
+                        onChange={(e) => setEditingDiscount({ ...editingDiscount, text: e.target.value })}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      onClick={() => setEditingDiscount(null)}
+                      className="px-5 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-lg"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => handleUpdateDiscount(discount._id)}
+                      className="px-5 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-bold text-lg text-gray-800">{discount.day}</h4>
+                    <p className="text-gray-600 text-base mt-1">{discount.text}</p>
+                    <p className="text-base mt-2">
+                      <span className="font-semibold text-green-600">{discount.discount}% OFF</span> | 
+                      <span className="ml-2 capitalize bg-gray-100 px-2 py-1 rounded text-sm">
+                        {discount.category === 'all' ? 'Todos los productos' : 
+                         discount.category === 'delivery' ? 'Delivery' : 
+                         discount.category === 'almacen' ? 'Almacén' : 'Comida'}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => setEditingDiscount({ ...discount })}
+                      className="p-3 bg-blue-100 rounded-lg hover:bg-blue-200 transition-colors"
+                      title="Editar"
+                    >
+                      <Edit className="h-5 w-5" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm('¿Estás seguro de eliminar este descuento?')) {
+                          deleteDiscount(discount._id);
+                        }
+                      }}
+                      className="p-3 bg-red-100 rounded-lg hover:bg-red-200 transition-colors"
+                      title="Eliminar"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 // Componente AdminOrdersView
 const AdminOrdersView = ({ setAdminView }) => {
@@ -427,7 +714,7 @@ const AdminProductsView = ({
   );
 };
 
-// Componente AdminOverview
+// Componente AdminOverview - MODIFICADO para incluir botón de descuentos
 const AdminOverview = ({ setAdminView, user, adminStats, products }) => {
   const activeProducts = adminStats.totalProducts || 0;
   const lowStockProducts = adminStats.lowStockProducts || 0;
@@ -466,7 +753,7 @@ const AdminOverview = ({ setAdminView, user, adminStats, products }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
         <button
           onClick={() => setAdminView('products')}
           className="bg-white p-5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-left border border-gray-100 hover:border-blue-100 group"
@@ -492,6 +779,20 @@ const AdminOverview = ({ setAdminView, user, adminStats, products }) => {
           <h3 className="font-bold text-lg text-gray-800 mb-1">Ver Pedidos</h3>
           <p className="text-gray-600 text-sm">Gestionar pedidos</p>
         </button>
+        
+        {/* NUEVO BOTÓN PARA DESCUENTOS */}
+        <button
+          onClick={() => setAdminView('discounts')}
+          className="bg-white p-5 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-left border border-gray-100 hover:border-purple-100 group"
+        >
+          <div className="flex items-center mb-3">
+            <div className="bg-purple-100 p-3 rounded-lg group-hover:bg-purple-200 transition-colors">
+              <Percent className="h-8 w-8 text-purple-600" />
+            </div>
+          </div>
+          <h3 className="font-bold text-lg text-gray-800 mb-1">Descuentos Diarios</h3>
+          <p className="text-gray-600 text-sm">Configurar ofertas</p>
+        </button>
       </div>
 
       {lowStockProducts > 0 && (
@@ -513,7 +814,7 @@ const AdminOverview = ({ setAdminView, user, adminStats, products }) => {
   );
 };
 
-// PANEL DE ADMINISTRACIÓN - Componente principal corregido
+// PANEL DE ADMINISTRACIÓN - MODIFICADO para incluir vista de descuentos
 const AdminPanel = ({ 
   user, 
   adminStats, 
@@ -527,11 +828,14 @@ const AdminPanel = ({
   setEditingProduct, 
   handleUpdateProduct, 
   toggleProductActive, 
-  deleteProduct 
+  deleteProduct,
+  // NUEVAS PROPS PARA DESCUENTOS
+  discounts,
+  loadDiscounts,
+  deleteDiscount
 }) => {
   const [adminView, setAdminView] = useState('overview');
 
-  // Renderizado condicional sin hooks dentro de condicionales
   const renderAdminView = () => {
     switch (adminView) {
       case 'overview':
@@ -555,6 +859,15 @@ const AdminPanel = ({
         );
       case 'orders':
         return <AdminOrdersView setAdminView={setAdminView} />;
+      case 'discounts': // NUEVA VISTA
+        return (
+          <AdminDiscountsView 
+            setAdminView={setAdminView}
+            discounts={discounts}
+            loadDiscounts={loadDiscounts}
+            deleteDiscount={deleteDiscount}
+          />
+        );
       default:
         return <AdminOverview setAdminView={setAdminView} user={user} adminStats={adminStats} products={products} />;
     }
@@ -564,6 +877,7 @@ const AdminPanel = ({
 };
 
 const App = () => {
+  // Estados existentes...
   const [currentView, setCurrentView] = useState('home');
   const [cart, setCart] = useState([]);
   const [user, setUser] = useState(null);
@@ -584,6 +898,35 @@ const App = () => {
     image: '',
     stock: ''
   });
+
+  // NUEVO ESTADO para descuentos
+  const [discounts, setDiscounts] = useState([]);
+
+// Justo después de tus useStates, agrega:
+// Agrega esto en tu componente principal
+useEffect(() => {
+  const testConnection = async () => {
+    try {
+      console.log('🔍 Testing connection to backend...');
+      
+      // ✅ Usa await correctamente
+      const response = await fetch('http://localhost:5000/api/products');
+      console.log('✅ Response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Products data received:', data.length, 'products');
+      } else {
+        console.log('❌ Response not OK:', response.status);
+      }
+    } catch (error) {
+      console.error('❌ Connection test failed:', error);
+    }
+  };
+  
+  testConnection();
+}, []);
+
 
   // API Functions - usando useCallback
   const loadProducts = useCallback(async () => {
@@ -625,6 +968,26 @@ const App = () => {
     }
   }, []);
 
+  // NUEVA FUNCIÓN para cargar descuentos
+  const loadDiscounts = useCallback(async () => {
+    try {
+      const data = await apiRequest('/discounts');
+      setDiscounts(data);
+    } catch (error) {
+      console.error('Error cargando descuentos:', error);
+    }
+  }, []);
+
+  // NUEVA FUNCIÓN para eliminar descuentos
+  const deleteDiscount = async (id) => {
+    try {
+      await apiRequest(`/admin/discounts/${id}`, { method: 'DELETE' });
+      loadDiscounts();
+    } catch (error) {
+      alert('Error al eliminar descuento: ' + error.message);
+    }
+  };
+
   // Cargar usuario al inicializar
   useEffect(() => {
     const savedUser = localStorage.getItem('user');
@@ -634,7 +997,8 @@ const App = () => {
       setIsAdmin(userData.isAdmin);
     }
     loadProducts();
-  }, [loadProducts]);
+    loadDiscounts(); // Cargar descuentos al iniciar
+  }, [loadProducts, loadDiscounts]);
 
   // Cargar datos del usuario logueado
   useEffect(() => {
@@ -646,23 +1010,35 @@ const App = () => {
     }
   }, [user, loadOrders, loadAdminStats]);
 
-  // Simular descuento diario
+  // Obtener descuento del día actual - MODIFICADO para usar API
   useEffect(() => {
-    const discounts = [
-      { day: 'Lunes', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
-      { day: 'Martes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
-      { day: 'Miércoles', discount: 20, category: 'all', text: '20% OFF en toda la tienda' },
-      { day: 'Jueves', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
-      { day: 'Viernes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
-      { day: 'Sábado', discount: 25, category: 'delivery', text: '25% OFF en delivery' },
-      { day: 'Domingo', discount: 12, category: 'all', text: '12% OFF en toda la tienda' }
-    ];
+    const getDailyDiscount = async () => {
+      try {
+        const todayDiscount = await apiRequest('/discounts/today');
+        setDailyDiscount(todayDiscount);
+      } catch (error) {
+        console.error('Error cargando descuento del día:', error);
+        // Si hay error, usar descuento por defecto basado en el día
+        const defaultDiscounts = [
+          { day: 'Lunes', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
+          { day: 'Martes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
+          { day: 'Miércoles', discount: 20, category: 'all', text: '20% OFF en toda la tienda' },
+          { day: 'Jueves', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
+          { day: 'Viernes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
+          { day: 'Sábado', discount: 25, category: 'delivery', text: '25% OFF en delivery' },
+          { day: 'Domingo', discount: 12, category: 'all', text: '12% OFF en toda la tienda' }
+        ];
+        
+        const today = new Date().toLocaleDateString('es-ES', { weekday: 'long' });
+        const todayCapitalized = today.charAt(0).toUpperCase() + today.slice(1);
+        const todayDefaultDiscount = defaultDiscounts.find(d => d.day === todayCapitalized);
+        setDailyDiscount(todayDefaultDiscount);
+      }
+    };
     
-    const today = new Date().toLocaleDateString('es-ES', { weekday: 'long' });
-    const todayCapitalized = today.charAt(0).toUpperCase() + today.slice(1);
-    const todayDiscount = discounts.find(d => d.day === todayCapitalized);
-    setDailyDiscount(todayDiscount);
+    getDailyDiscount();
   }, []);
+
 
   // FUNCIONES DE ADMINISTRACIÓN
   const resetNewProduct = () => {
@@ -1471,8 +1847,13 @@ const App = () => {
             handleUpdateProduct={handleUpdateProduct}
             toggleProductActive={toggleProductActive}
             deleteProduct={deleteProduct}
+                    // NUEVAS PROPS PARA DESCUENTOS
+            discounts={discounts}
+            loadDiscounts={loadDiscounts}
+            deleteDiscount={deleteDiscount}
           />
         )}
+
         {currentView === 'profile' && (
           <div className="p-6 text-center">
             <h2 className="text-2xl font-bold mb-5 text-gray-800">Mi Perfil</h2>

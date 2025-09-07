@@ -8,10 +8,30 @@ require('dotenv').config();
 
 const app = express();
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+// Middleware CORS para desarrollo (más permisivo)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
+});
+// Agrega esto después del middleware CORS
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
 
+app.use(express.json());
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -56,10 +76,37 @@ const OrderSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// NUEVO ESQUEMA PARA DESCUENTOS
+const DiscountSchema = new mongoose.Schema({
+  day: { 
+    type: String, 
+    required: true,
+    enum: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'],
+    unique: true // ← Esto asegura que solo haya un descuento por día
+  },
+  discount: { 
+    type: Number, 
+    required: true,
+    min: 1,
+    max: 100
+  },
+  category: { 
+    type: String, 
+    required: true,
+    enum: ['almacen', 'comida', 'all', 'delivery']
+  },
+  text: { type: String, required: true },
+  isActive: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+// ELIMINA cualquier campo "code" si existe en el esquema
+
 // Models
 const User = mongoose.model('User', UserSchema);
 const Product = mongoose.model('Product', ProductSchema);
 const Order = mongoose.model('Order', OrderSchema);
+const Discount = mongoose.model('Discount', DiscountSchema); // NUEVO MODELO
 
 // Auth middleware
 const authenticateToken = (req, res, next) => {
@@ -85,12 +132,10 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// 👇👇👇 AGREGA ESTA FUNCIÓN JUSTO AQUÍ 👇👇👇
-
 // Función para crear usuario administrador automáticamente
 const initializeAdminUser = async () => {
   try {
-    const adminEmail = 'admin@despensaturillo.com';
+    const adminEmail = 'admin@despensamurillo.com';
     const adminPassword = 'admin123';
     
     // Verificar si ya existe el admin
@@ -119,7 +164,30 @@ const initializeAdminUser = async () => {
   }
 }
 
-// 👇 AGREGAR ESTA RUTA AQUÍ 👇
+// Inicializar descuentos por defecto
+const initializeDiscounts = async () => {
+  try {
+    const count = await Discount.countDocuments();
+    if (count === 0) {
+      const defaultDiscounts = [
+        { day: 'Lunes', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
+        { day: 'Martes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
+        { day: 'Miércoles', discount: 20, category: 'all', text: '20% OFF en toda la tienda' },
+        { day: 'Jueves', discount: 10, category: 'almacen', text: '10% OFF en productos de almacén' },
+        { day: 'Viernes', discount: 15, category: 'comida', text: '15% OFF en comidas preparadas' },
+        { day: 'Sábado', discount: 25, category: 'delivery', text: '25% OFF en delivery' },
+        { day: 'Domingo', discount: 12, category: 'all', text: '12% OFF en toda la tienda' }
+      ];
+      
+      await Discount.insertMany(defaultDiscounts);
+      console.log('✅ Descuentos por defecto creados');
+    }
+  } catch (error) {
+    console.error('❌ Error inicializando descuentos:', error);
+  }
+};
+
+// server.js - Rutas de autenticación (asegúrate de que estén así)
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -165,6 +233,45 @@ app.post('/api/auth/login', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error en login:', error);
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+// NO OLVIDES la ruta de registro también
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    
+    if (!email || !password || !name) {
+      return res.status(400).json({ message: 'Todos los campos son requeridos' });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'El usuario ya existe' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ email, password: hashedPassword, name });
+    await user.save();
+
+    const token = jwt.sign(
+      { id: user._id, email: user.email, isAdmin: user.isAdmin },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '24h' }
+    );
+
+    res.status(201).json({
+      message: 'Usuario creado exitosamente',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        name: user.name,
+        isAdmin: user.isAdmin
+      }
+    });
+  } catch (error) {
     res.status(500).json({ message: 'Error del servidor', error: error.message });
   }
 });
@@ -317,8 +424,109 @@ app.get('/api/admin/stats', authenticateToken, requireAdmin, async (_req, res) =
   }
 });
 
-// Inicializar productos de ejemplo (solo si no existen)
-// Inicializar productos de ejemplo (solo si no existen)
+// NUEVAS RUTAS PARA DESCUENTOS
+// NUEVAS RUTAS PARA DESCUENTOS - VERIFICA QUE ESTÉN EN TU server.js
+app.get('/api/discounts', async (_req, res) => {
+  try {
+    const discounts = await Discount.find({ isActive: true });
+    res.json(discounts);
+  } catch (error) {
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+app.get('/api/discounts/today', async (_req, res) => {
+  try {
+    const today = new Date().toLocaleDateString('es-ES', { weekday: 'long' });
+    const todayCapitalized = today.charAt(0).toUpperCase() + today.slice(1);
+    
+    const discount = await Discount.findOne({ 
+      day: todayCapitalized, 
+      isActive: true 
+    });
+    
+    res.json(discount || null);
+  } catch (error) {
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+app.get('/api/admin/discounts', authenticateToken, requireAdmin, async (_req, res) => {
+  try {
+    const discounts = await Discount.find().sort({ day: 1 });
+    res.json(discounts);
+  } catch (error) {
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+app.post('/api/admin/discounts', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    console.log('📝 Recibiendo solicitud para nuevo descuento:', req.body);
+    
+    const { day, discount, category, text } = req.body;
+    
+    if (!day || !discount || !category || !text) {
+      return res.status(400).json({ 
+        message: 'Faltan campos requeridos: day, discount, category, text' 
+      });
+    }
+
+    // Verificar si ya existe un descuento para este día
+    const existingDiscount = await Discount.findOne({ day });
+    if (existingDiscount) {
+      return res.status(400).json({ 
+        message: 'Ya existe un descuento para este día' 
+      });
+    }
+
+    const newDiscount = new Discount({
+      day,
+      discount: parseInt(discount),
+      category,
+      text,
+      isActive: true
+    });
+    
+    await newDiscount.save();
+    
+    console.log('✅ Descuento creado:', newDiscount);
+    res.status(201).json(newDiscount);
+    
+  } catch (error) {
+    console.error('❌ Error creando descuento:', error);
+    res.status(500).json({ 
+      message: 'Error del servidor',
+      error: error.message 
+    });
+  }
+});
+
+app.put('/api/admin/discounts/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const discount = await Discount.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!discount) {
+      return res.status(404).json({ message: 'Descuento no encontrado' });
+    }
+    res.json(discount);
+  } catch (error) {
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+app.delete('/api/admin/discounts/:id', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const discount = await Discount.findByIdAndDelete(req.params.id);
+    if (!discount) {
+      return res.status(404).json({ message: 'Descuento no encontrado' });
+    }
+    res.json({ message: 'Descuento eliminado' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error del servidor', error: error.message });
+  }
+});
+
+// Inicializar productos de ejemplo
 const initializeProducts = async () => {
   try {
     const count = await Product.countDocuments();
@@ -351,21 +559,20 @@ const initializeProducts = async () => {
       ];
       
       await Product.insertMany(sampleProducts);
-      console.log('✅ Productos de ejemplo creados'); // 👈 Cambié el mensaje
+      console.log('✅ Productos de ejemplo creados');
     }
   } catch (error) {
     console.error('❌ Error inicializando productos:', error);
   }
 };
 
-// ... (todo tu código anterior)
-
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
   
-  // Inicializar productos y usuario admin
+  // Inicializar productos, usuario admin y descuentos
   await initializeProducts();
-  await initializeAdminUser(); // 👈 ESTA LÍNEA ES NUEVA
+  await initializeAdminUser();
+  await initializeDiscounts(); // 👈 NUEVA INICIALIZACIÓN
 });
